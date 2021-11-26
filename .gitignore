@@ -1,0 +1,6 @@
+/target
+
+.git
+/vsc/
+todo.md
+Cargo.lock
