@@ -1,13 +1,14 @@
 
-
-
-
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::net::TcpListener;
 use std::option::Option;
 
-use log::{debug, error, info, warn};
+use std::sync::{Mutex, Arc};
+
+use log::{debug, error, info, trace};
+
+use tokio::task;
 
 use crate::server::cors::CORSHandler;
 use crate::server::request::Request;
@@ -28,6 +29,8 @@ pub struct Server{
     #[doc(hidden)]
     cors_handler: CORSHandler,
 }
+
+
 
 impl Server
 
@@ -79,11 +82,19 @@ impl Server
         for stream in listener.incoming(){
 
             match stream {
-                Ok(mut s) => {
-                    match handle_request(&mut s, &self.routes, &self.cors_handler) {
-                        Ok(_s) => _s,
-                        Err(_) => continue,
-                    };
+                Ok(s) => {
+
+                    let stream = Arc::new(Mutex::new(s));
+                    let routes = Arc::new(Mutex::new(self.routes.clone()));
+                    let cors = Arc::new(Mutex::new(self.cors_handler.clone()));
+                    let _handle = task::spawn(async {
+
+                        match handle_request(stream, routes, cors) {
+                            Ok(_s) => trace!("Succesful handling of request."),
+                            Err(_) => trace!("Failed to handle request."),
+                        };
+                    });
+
                 },
                 Err(_) =>
                 continue,
@@ -95,16 +106,22 @@ impl Server
 }
 
 #[doc(hidden)]
-fn handle_request(stream: &mut TcpStream, routes: &Vec<Route>, cors: &CORSHandler) -> std::io::Result<()>{
+fn handle_request(stream: Arc<Mutex<TcpStream>>, routes: Arc<Mutex<Vec<Route>>>, cors: Arc<Mutex<CORSHandler>>) -> std::io::Result<()>{
+    
+    let mut stream = stream.lock().unwrap();
     let mut buffer = [0; 1024];
     let bytes_read = stream.read(&mut buffer)?;
 
     let b = String::from_utf8_lossy(&buffer[..bytes_read]);
 
+
+
     let mut response : Response = match Request::parse(&b) {
-        Ok(request) => match route_request(&routes, &request, &cors) {
-            Ok(response) => response,
-            Err(e) => Response::generate_from_status_code(e),
+        Ok(request) => { 
+            match route_request(routes, &request, cors) {
+                Ok(response) => response,
+                Err(e) => Response::generate_from_status_code(e),
+            }
         },
         Err(_) => {
             error!("Failed to parsed incoming request.");
@@ -120,10 +137,12 @@ fn handle_request(stream: &mut TcpStream, routes: &Vec<Route>, cors: &CORSHandle
 }
 
 #[doc(hidden)]
-fn route_request(paths: &Vec<Route>, req: &Request, cors: &CORSHandler) -> Result<Response, StatusCode> {
+fn route_request(paths: Arc<Mutex<Vec<Route>>>, req: &Request, cors: Arc<Mutex<CORSHandler>>) -> Result<Response, StatusCode> {
     let mut path = None;
 
-    for p in paths {
+    let routes = paths.lock().unwrap().clone();
+
+    for p in routes {
         if req.url.eq(&p.url) && req.method.eq(&p.method){
             path = Some(p);
             break;
@@ -151,29 +170,28 @@ fn route_request(paths: &Vec<Route>, req: &Request, cors: &CORSHandler) -> Resul
 
 #[doc(hidden)]
 fn ask_response(route: &Route, request: &Request) -> Response {
-    let response = match &route.response {
-        Some(r) => match (r)(request.to_owned()) {
-            Ok(s) => s, 
-            Err(e) => Response::generate_from_status_code(e),
-        },
-        None => {
-            warn!("Route found for Request {} {} , but no Response has been set.", request.method.to_string(), request.url);
-            Response::default()},
+
+    let response = match (&route.response)(request.to_owned()) {
+        Ok(r) => r,
+        Err(e) => Response::generate_from_status_code(e),
     };
+
     debug!("Request {} {} : Returning {} {}.", request.method.to_string(), request.url, response.status.get_code(), response.status.get_title());
     response
 }
 
 #[doc(hidden)]
-fn handle_cors(paths: &Vec<Route>, req: &Request, cors: &CORSHandler) -> Option<Response> {
+fn handle_cors(paths: Arc<Mutex<Vec<Route>>>, req: &Request, cors: Arc<Mutex<CORSHandler>>) -> Option<Response> {
     
-    if !cors.activated {
+    let cors_deref = cors.lock().unwrap().clone();
+    let cors_bool = cors_deref.activated;
+    if !cors_bool {
         return None
     }
 
-    for p in paths {
+    for p in paths.lock().unwrap().clone() {
         if req.url.eq(&p.url) && req.method.eq(&HttpMethod::OPTIONS) {
-            return Some(match cors.generate_response(){
+            return Some(match cors_deref.generate_response(){
                 Ok(s) => return Some(s),
                 Err(_) => Response::generate_from_status_code(StatusCode::InternalServerError), 
             });
@@ -191,18 +209,23 @@ mod test {
 
     use super::*;
     use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn not_found_request(){
        let request = Request {method: HttpMethod::GET, url: "/hello".into(), headers: HashMap::new(), cookies: HashMap::new(), param: HashMap::new(), body: String::new() };
-       assert_eq!(Err(StatusCode::NotFound), route_request(&Vec::new(), &request, &CORSHandler::inert()));
+       let routes : Arc<Mutex<Vec<Route>>> =Arc::new(Mutex::new(Vec::new())) ;
+       let cors = Arc::new(Mutex::new(CORSHandler::inert()));
+       assert_eq!(Err(StatusCode::NotFound), route_request(routes, &request, cors));
     }
 
     #[test]
     fn request_found(){
         let route = Route::new("/hello", HttpMethod::GET);
         let request = Request {method: HttpMethod::GET, url: "/hello".into(), headers: HashMap::new(), cookies: HashMap::new(), param: HashMap::new(), body: String::new() };
-        assert_eq!(StatusCode::Ok , route_request(&vec![route], &request, &CORSHandler::inert()).unwrap().status);
+        let routes : Arc<Mutex<Vec<Route>>> =Arc::new(Mutex::new(vec![route])) ;
+        let cors = Arc::new(Mutex::new(CORSHandler::inert()));
+        assert_eq!(StatusCode::Ok , route_request(routes, &request, cors).unwrap().status);
     }
 
     #[test]
@@ -210,15 +233,18 @@ mod test {
         let mut route = Route::new("/hello", HttpMethod::GET);
         route.add_required_url_param("name");
         let request = Request {method: HttpMethod::GET, url: "/hello".into(), headers: HashMap::new(), cookies: HashMap::new(), param: HashMap::new(), body: String::new() };
-        assert_eq!(Err(StatusCode::BadRequest) , route_request(&vec![route], &request, &CORSHandler::inert()));
+        let routes : Arc<Mutex<Vec<Route>>> =Arc::new(Mutex::new(vec![route])) ;
+        let cors = Arc::new(Mutex::new(CORSHandler::inert()));
+        assert_eq!(Err(StatusCode::BadRequest) , route_request(routes, &request, cors));
     }
 
     #[test]
     fn active_cors(){
         let route = Route::new("/hello", HttpMethod::GET);
-        let cors = CORSHandler::default();
         let request = Request {method: HttpMethod::GET, url: "/hello".into(), headers: HashMap::new(), cookies: HashMap::new(), param: HashMap::new(), body: String::new() };
-        assert_eq!(StatusCode::Ok , route_request(&vec![route], &request, &cors).unwrap().status);
+        let routes : Arc<Mutex<Vec<Route>>> =Arc::new(Mutex::new(vec![route])) ;
+        let cors = Arc::new(Mutex::new(CORSHandler::inert()));
+        assert_eq!(StatusCode::Ok , route_request(routes, &request, cors).unwrap().status);
     }
 
 }

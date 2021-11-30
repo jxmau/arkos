@@ -11,7 +11,7 @@ use crate::core::{method::HttpMethod, status::StatusCode};
 use super::{request::Request, response::Response};
 
 
-
+#[derive(Clone)]
 pub struct Route{
     #[doc(hidden)]
     pub url : String,
@@ -26,14 +26,14 @@ pub struct Route{
     #[doc(hidden)]
     pub required_cookie: Vec<String>,
     #[doc(hidden)]
-    pub response: Option<Arc<dyn Fn(Request) -> Result<Response, StatusCode>>>,
+    pub response: Arc<dyn Fn(Request) -> Result<Response, StatusCode> + Send + Sync>,
 }
 
 impl Route {
     
     /// Will create a new Route with a path and a HTTP Method, but with an empty Response that will return a 200 Ok if called.
     pub fn new(url: &str,method: HttpMethod) -> Self{
-        Route {url : url.to_string(), method, request: None,  required_param: Vec::new(), required_header: Vec::new(),required_cookie: Vec::new(),  response : None }
+        Route {url : url.to_string(), method, request: None,  required_param: Vec::new(), required_header: Vec::new(),required_cookie: Vec::new(),  response : Arc::new(|_req: Request| {Ok(Response::default())}) }
     }
 
     /// Will add a required url parameters. If missing, the server will return a 400 Bad Request Response.
@@ -55,8 +55,8 @@ impl Route {
     }
 
     /// Will set a Response to the Route. If you want to return only a Status Code like 401 or 403, use Err(StatusCode::Unauthorized) instead. The server will generate a Response from it when calling your closure.
-    pub fn set_response<'a>(&mut self, fun: Arc<dyn Fn(Request) -> Result<Response, StatusCode>>)  {
-        self.response = Some(fun);
+    pub fn set_response<'a>(&mut self, fun: Arc<dyn Fn(Request) -> Result<Response, StatusCode> + Send + Sync>)  {
+        self.response = fun;
     }
 
 

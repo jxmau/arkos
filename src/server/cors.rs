@@ -8,6 +8,7 @@ use super::response::Response;
 
 
 /// A CORSHandler is a struct can will generate a response with specified Headers.
+#[derive(Clone)]
 pub struct CORSHandler {
     #[doc(hidden)]
     pub activated: bool,

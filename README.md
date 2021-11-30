@@ -3,8 +3,7 @@
 
 ## What is Arkos
 
-Arkos is a toy-project of a synchronous http web server self-contained with native CORS handling. <br>
-Its development is inspired by warp, axum and Spring (Yes, the Java Framework)
+Arkos is an async HTTP/1.1 Web Server library inspired by warp and axum, and a little bit by Spring.
 
 <br> 
 If you want to use a web server library, please check-out [warp](https://github.com/seanmonstar/warp) or [axum](https://github.com/tokio-rs/axum) 
