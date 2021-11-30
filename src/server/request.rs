@@ -46,6 +46,7 @@ impl Request {
         let mut url_and_param = method_and_path.next().map(|line| line.split('?')).ok_or(StatusCode::InternalServerError)?;
 
         let url = url_and_param.next().ok_or(StatusCode::InternalServerError)?;
+        let url = url.to_lowercase();
 
         let params : HashMap<String, String> = match url_and_param.next() {
             Some(param_line) => {
