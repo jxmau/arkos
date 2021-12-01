@@ -20,6 +20,7 @@ use crate::core::method::HttpMethod;
 
 use super::checkpoint::Checkpoint;
 use super::checkpoint_manager::CheckpointManager;
+use super::protocol::Protocol;
 use super::route::Route;
 
 pub struct Server{
@@ -122,19 +123,27 @@ fn handle_request(stream: Arc<Mutex<TcpStream>>, routes: Arc<Mutex<Vec<Route>>>,
     let b = String::from_utf8_lossy(&buffer[..bytes_read]);
 
 
+    // TODO: Perhaps use a Request Factory that will be able to find the HTTP param in the request, that returns an enu
 
-    let mut response : Response = match Request::parse(&b) {
-        Ok(request) => { 
-            match route_request(routes, &request, cors, checkpoints) {
-                Ok(response) => response,
-                Err(e) => Response::generate_from_status_code(e),
-            }
-        },
-        Err(_) => {
-            error!("Failed to parsed incoming request.");
-            Response::generate_from_status_code(StatusCode::InternalServerError)},
+    let mut response : Response = match Protocol::parse_from_raw(&b) {
+        Protocol::Http11 => {
+            trace!("Request received has Protocol HTTP/1.1 - Routed for Request parsing.");
+            match Request::parse(&b) {
+                Ok(request) => { 
+                    match route_request(routes, &request, cors, checkpoints) {
+                        Ok(response) => response,
+                        Err(e) => Response::generate_from_status_code(e),
+                    }
+                },
+                Err(e) => {
+                    error!("Failed to parsed incoming request. ");
+                    Response::generate_from_status_code(e)},
+            }},
+        Protocol::Error => {
+            trace!("Fail to know which Transfert Protocol Request used. Returning 501 HTTP VersionNot Supported");
+            Response::generate_from_status_code(StatusCode::HTTPVersionNotSupported)
+        }
     };
-
 
     let response: String = response.convert();
 
@@ -145,22 +154,13 @@ fn handle_request(stream: Arc<Mutex<TcpStream>>, routes: Arc<Mutex<Vec<Route>>>,
 
 #[doc(hidden)]
 fn route_request(paths: Arc<Mutex<Vec<Route>>>, req: &Request, cors: Arc<Mutex<CORSHandler>>, checkpoints: Arc<Mutex<Vec<Checkpoint>>>) -> Result<Response, StatusCode> {
-    let mut path = None;
-
-    let routes = paths.lock().unwrap().clone();
-
-    for p in routes {
-        if req.url.eq(&p.url) && req.method.eq(&p.method){
-            path = Some(p);
-            break;
-        }
-    }
 
     {
         for check in checkpoints.lock().unwrap().deref() {
             let manager = CheckpointManager::new(check.to_owned());
             match manager.verify(req.to_owned()) {
                 Some(e) => {
+                    // TODO We generated the Error here, but to me moved at the lower level.
                     trace!("Request {} {} failed to pass a server checkpoint", req.method.to_string(), req.url);
                     return Ok(Response::generate_from_status_code(e))
                 },
@@ -169,7 +169,10 @@ fn route_request(paths: Arc<Mutex<Vec<Route>>>, req: &Request, cors: Arc<Mutex<C
         }
     }
 
-    match path {
+    let routes = paths.lock().unwrap().clone();
+    let route = routes.iter().find(|r| req.url.eq(&r.url) && req.method.eq(&r.method));
+
+    match route {
         Some(p) => match p.is_request_valid(&req) {
                 true => Ok(ask_response(&p, &req)),
                 false => {
@@ -198,7 +201,7 @@ fn handle_cors(paths: Arc<Mutex<Vec<Route>>>, req: &Request, cors: Arc<Mutex<COR
         return None
     }
     
-    for p in paths.lock().unwrap().clone() {
+    for p in paths.lock().unwrap().deref() {
         if req.url.eq(&p.url) && req.method.eq(&HttpMethod::OPTIONS) {
             return Some(match cors_deref.generate_response(){
                 Ok(s) => return Some(s),
