@@ -24,13 +24,16 @@ impl CheckpointManager{
             warn!("Checkpoint has been declared, but no path has been found.");
             return None;
         }
-        for path in &self.checkpoint.paths {
-            if path.eq(&format!("!{}", req.url)){
+
+        for path in &self.checkpoint.except { // Iterate in all paths declared as exception - Return None as it is excempted if true.
+            if compare(&path, &req.url) {
                 return None;
-            } else if req.url.eq(path) // Same path - Explicit same path
-                || ( path.ends_with("**") && req.url.starts_with(path.strip_suffix("**").unwrap()) ) // Base allowed - Check if the path listed ends with ** and the request starts with path
-                || ( path.ends_with("*") && req.url.starts_with(path.strip_suffix("*").unwrap()) && compare(&path, &req.url) )
-            {
+            }
+        }
+
+
+        for path in &self.checkpoint.paths { // Iterate in all paths declared to be checked
+            if compare(&path, &req.url) {
                 match (&self.checkpoint.check)(req.clone()) {
                     Ok(_) => continue,
                     Err(e) => return Some(e),
@@ -43,12 +46,29 @@ impl CheckpointManager{
 
 
 pub fn compare(list: &str, req: &str) -> bool {
-    // list : /hello/*  req: /hello/hello
-    if req.ends_with('/') {
-        let req = req.strip_suffix('/').unwrap();
-        return list.matches('/').count() == req.matches('/').count();
+
+    // Exact pattern /
+    if list.eq(req) {
+        return true;
     }
-    list.matches('/').count() == req.matches('/').count()
+
+    // Subpath allowed /* 
+    else if list.ends_with("**") && req.starts_with(list.strip_suffix("**").unwrap()) {
+        return true;
+    }
+
+    // Base is allowed /**
+    else if list.ends_with("*") && req.starts_with(list.strip_suffix("*").unwrap()) {
+        
+        // list : /hello/*  req: /hello/hello
+        if req.ends_with('/') {
+            let req = req.strip_suffix('/').unwrap();
+            return list.matches('/').count() == req.matches('/').count();
+        }
+
+    }
+
+    false
 }
 
 
@@ -74,15 +94,33 @@ mod test {
         Request { method: HttpMethod::GET, url: path.into(), headers: HashMap::new(), cookies: HashMap::new(), param: HashMap::new(), body: "".into() }
     }
 
-    // /hello - !/hello -> None 
+
+    // Quick Word regarding those tests : We don't test the compare() function, 
+    // but directly the verify method to be sure that exceptions are catched
+
+    // Path that shan't be checked and returned early
+    // We put the same path as path and except, for if the except fail, it will return a Some and the test can be qualified as false.
+
+    // /hello - /hello -> None 
     #[test]
-    fn blacklist() {
-        let m = base("!/hello");
+    fn except_exact() {
+        let mut m = base("/hello");
+        m.checkpoint.except("/hello");
         let req = base_req("/hello");
         assert_eq!(None, m.verify(req));
-
     }
 
+    // /hello - /** but /hello exempted -> Some() as it doesn't match the exact pattern
+    #[test]
+    fn except_exact_incomplete_path() {
+        let mut m = base("/**");
+        m.checkpoint.except("/hello");
+        let req = base_req("/hell");
+        assert_eq!(Some(StatusCode::BadRequest), m.verify(req));
+    }
+
+
+    // Paths to be checked
 
     // /hello - /hello -> Some 
     #[test]
