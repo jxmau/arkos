@@ -26,6 +26,7 @@ fn convert_http1(response: Response, protocol: Protocol) -> String {
     response.headers.insert("Content-Length".to_string(), response.body.len().to_string());
     response.headers.insert("Content-Type".to_string(), response.content_type.get());
     
+    headers.push_str(&response.status.generate_headers());
     for (key, val) in response.headers.iter() {
         let entry: String = format!("{}:{}\r\n", key, val);
         headers.push_str(&entry);
