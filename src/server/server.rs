@@ -2,24 +2,25 @@
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::net::TcpListener;
-use std::ops::Deref;
+
 use std::option::Option;
 
 use std::sync::{Mutex, Arc};
 
-use log::{debug, error, info, trace};
+use log::{error, info, trace};
 
 use tokio::task;
 
+use crate::handler::http1::handle_http1_request;
 use crate::server::cors::CORSHandler;
-use crate::server::request::Request;
+
 use crate::server::response::Response;
-use crate::core::status::{HttpStatusCode, StatusCode};
-use crate::core::method::HttpMethod;
+use crate::core::status::{ StatusCode};
+use crate::wrapper::response_factory::{generate_response_from_status_code, convert_response};
 
 
 use super::checkpoint::Checkpoint;
-use super::checkpoint_manager::CheckpointManager;
+
 use super::protocol::Protocol;
 use super::route::Route;
 
@@ -123,234 +124,33 @@ fn handle_request(stream: Arc<Mutex<TcpStream>>, routes: Arc<Mutex<Vec<Route>>>,
     let b = String::from_utf8_lossy(&buffer[..bytes_read]);
 
 
-    // TODO: Perhaps use a Request Factory that will be able to find the HTTP param in the request, that returns an enu
+    // TODO: Update that
+    let mut protocol = Protocol::Error;
 
-    let mut response : Response = match Protocol::parse_from_raw(&b) {
-        Protocol::Http11 => {
-            trace!("Request received has Protocol HTTP/1.1 - Routed for Request parsing.");
-            match Request::parse(&b) {
-                Ok(request) => { 
-                    match route_request(routes, &request, cors, checkpoints) {
-                        Ok(response) => response,
-                        Err(e) => Response::generate_from_status_code(e),
-                    }
-                },
-                Err(e) => {
-                    error!("Failed to parsed incoming request. ");
-                    Response::generate_from_status_code(e)},
-            }},
-        Protocol::Error => {
-            trace!("Fail to know which Transfert Protocol Request used. Returning 501 HTTP VersionNot Supported");
-            Response::generate_from_status_code(StatusCode::HTTPVersionNotSupported)
+    let response : Response = match Protocol::parse_from_raw(&b) {
+        Ok(protocol_parsed) => match protocol_parsed {
+            Protocol::Http1(v) => {
+                protocol = Protocol::Http1(v);
+                trace!("Request received has Protocol HTTP/1.{} - Routed for Request handling", v);
+                match handle_http1_request(&v, routes, &b, cors, checkpoints) {
+                    Ok(response) => response,
+                    Err(e) => generate_response_from_status_code(e),
+                }
+            },
+            _ => {            
+            trace!("Fail to know which Transfert Protocol Request used. Returning 501 HTTP Version Not Supported");
+            generate_response_from_status_code(StatusCode::HTTPVersionNotSupported)
+        }},
+        _ => {
+            trace!("Fail to know which Transfert Protocol Request used. Returning 501 HTTP Version Not Supported");
+            generate_response_from_status_code(StatusCode::HTTPVersionNotSupported)
         }
     };
 
-    let response: String = response.convert();
+
+    let response: String = convert_response(response, protocol);
 
     stream.write(response.as_bytes())?;
 
     Ok(())
-}
-
-#[doc(hidden)]
-fn route_request(paths: Arc<Mutex<Vec<Route>>>, req: &Request, cors: Arc<Mutex<CORSHandler>>, checkpoints: Arc<Mutex<Vec<Checkpoint>>>) -> Result<Response, StatusCode> {
-
-    {
-        for check in checkpoints.lock().unwrap().deref() {
-            let manager = CheckpointManager::new(check.to_owned());
-            match manager.verify(req.to_owned()) {
-                Some(e) => {
-                    // TODO We generated the Error here, but to me moved at the lower level.
-                    trace!("Request {} {} failed to pass a server checkpoint", req.method.to_string(), req.url);
-                    return Ok(Response::generate_from_status_code(e))
-                },
-                None => continue,
-            }
-        }
-    }
-
-    let routes = paths.lock().unwrap().clone();
-    let route = routes.iter().find(|r| req.url.eq(&r.url) && req.method.eq(&r.method));
-
-    match route {
-        Some(p) => match p.is_request_valid(&req) {
-                true => Ok(ask_response(&p, &req)),
-                false => {
-                    debug!("Request {} {} was deemed invalid : Returning 400 Bad Request.", req.method.to_string(), req.url);
-                    Err(StatusCode::BadRequest)},
-            },
-        None => match handle_cors(paths, req, cors) {
-            Some(s) => {
-                debug!("Request {} {} has been rerouted for CORS handling :  Returning {} {}.", req.method.to_string(), req.url, s.status.get_code(), s.status.get_title());
-                Ok(s)},
-            None => {
-                debug!("No route found for Request {} {} : Returning 404 Not Found.", req.method.to_string(), req.url );
-                Err(StatusCode::NotFound)},
-        } 
-    }
-
-}
-
-
-#[doc(hidden)]
-fn handle_cors(paths: Arc<Mutex<Vec<Route>>>, req: &Request, cors: Arc<Mutex<CORSHandler>>) -> Option<Response> {
-    
-    let cors_deref = cors.lock().unwrap().clone();
-    let cors_bool = cors_deref.activated;
-    if !cors_bool {
-        return None
-    }
-    
-    for p in paths.lock().unwrap().deref() {
-        if req.url.eq(&p.url) && req.method.eq(&HttpMethod::OPTIONS) {
-            return Some(match cors_deref.generate_response(){
-                Ok(s) => return Some(s),
-                Err(_) => Response::generate_from_status_code(StatusCode::InternalServerError), 
-            });
-        }
-    }
-    
-    None
-}
-
-
-#[doc(hidden)]
-fn ask_response(route: &Route, request: &Request) -> Response {
-
-
-    for check in &route.checks {
-        match (check)(request.to_owned()){
-            Ok(_) => continue,
-            Err(e) => {
-                trace!("Request {} {} failed to pass a route checkpoint", request.method.to_string(), request.url);
-                return Response::generate_from_status_code(e);
-            },
-        }
-    }    
-
-
-    let response = match (&route.response)(request.to_owned()) {
-        Ok(r) => r,
-        Err(e) => Response::generate_from_status_code(e),
-    };
-
-    debug!("Request {} {} : Returning {} {}.", request.method.to_string(), request.url, response.status.get_code(), response.status.get_title());
-    response
-}
-
-
-
-#[cfg(test)]
-mod test {
-
-    use super::*;
-    use std::collections::HashMap;
-    use std::sync::{Arc, Mutex};
-
-    #[test]
-    fn not_found_request(){
-       let request = Request {method: HttpMethod::GET, url: "/hello".into(), headers: HashMap::new(), cookies: HashMap::new(), param: HashMap::new(), body: String::new() };
-       let routes : Arc<Mutex<Vec<Route>>> =Arc::new(Mutex::new(Vec::new())) ;
-       let cors = Arc::new(Mutex::new(CORSHandler::inert()));
-       let checkpoints = Arc::new(Mutex::new(vec![]));
-       assert_eq!(Err(StatusCode::NotFound), route_request(routes, &request, cors, checkpoints));
-    }
-
-    #[test]
-    fn request_found(){
-        let route = Route::new("/hello", HttpMethod::GET);
-        let request = Request {method: HttpMethod::GET, url: "/hello".into(), headers: HashMap::new(), cookies: HashMap::new(), param: HashMap::new(), body: String::new() };
-        let routes : Arc<Mutex<Vec<Route>>> =Arc::new(Mutex::new(vec![route])) ;
-        let cors = Arc::new(Mutex::new(CORSHandler::inert()));
-        let checkpoints = Arc::new(Mutex::new(vec![]));
-        assert_eq!(StatusCode::Ok , route_request(routes, &request, cors, checkpoints).unwrap().status);
-    }
-
-    #[test]
-    fn bad_request(){
-        let mut route = Route::new("/hello", HttpMethod::GET);
-        route.add_required_url_param("name");
-        let request = Request {method: HttpMethod::GET, url: "/hello".into(), headers: HashMap::new(), cookies: HashMap::new(), param: HashMap::new(), body: String::new() };
-        let routes : Arc<Mutex<Vec<Route>>> =Arc::new(Mutex::new(vec![route])) ;
-        let cors = Arc::new(Mutex::new(CORSHandler::inert()));
-        let checkpoints = Arc::new(Mutex::new(vec![]));
-        assert_eq!(Err(StatusCode::BadRequest) , route_request(routes, &request, cors, checkpoints));
-    }
-
-    #[test]
-    fn active_cors(){
-        let route = Route::new("/hello", HttpMethod::GET);
-        let request = Request {method: HttpMethod::GET, url: "/hello".into(), headers: HashMap::new(), cookies: HashMap::new(), param: HashMap::new(), body: String::new() };
-        let routes : Arc<Mutex<Vec<Route>>> =Arc::new(Mutex::new(vec![route])) ;
-        let cors = Arc::new(Mutex::new(CORSHandler::inert()));
-        let checkpoints = Arc::new(Mutex::new(vec![]));
-        assert_eq!(StatusCode::Ok , route_request(routes, &request, cors, checkpoints).unwrap().status);
-    }
-
-
-    fn check() -> Arc<dyn Fn(Request) -> Result<(), StatusCode> + Send + Sync> {
-        Arc::new(|request: Request| {
-            match request.param.contains_key("security") {
-                true => Ok(()),
-                false => Err(StatusCode::BadRequest),
-            }
-        })
-    } 
-
-    // With server checkpoints
-    #[test]
-    fn server_checkpoint_valid(){
-        let route = Route::new("/hello".into(), HttpMethod::GET);
-
-        let mut headers : HashMap<String, String>= HashMap::new();
-        headers.insert("security".into(), "value".into());
-        let request = Request {method: HttpMethod::GET, url: "/hello".into(), headers: HashMap::new(), cookies: HashMap::new(), param: headers, body: String::new() };
-        let routes : Arc<Mutex<Vec<Route>>> =Arc::new(Mutex::new(vec![route])) ;
-        let cors = Arc::new(Mutex::new(CORSHandler::inert()));
-        let check = Checkpoint::new(vec!["/hello".into()], check());
-        let checkpoints = Arc::new(Mutex::new(vec![check]));
-        assert_eq!(StatusCode::Ok, route_request(routes, &request, cors, checkpoints).unwrap().status);
-     }
-
-     #[test]
-    fn server_checkpoint_invalid(){
-        let route = Route::new("/hello".into(), HttpMethod::GET);
-        let request = Request {method: HttpMethod::GET, url: "/hello".into(), headers: HashMap::new(), cookies: HashMap::new(), param: HashMap::new(), body: String::new() };
-        let routes : Arc<Mutex<Vec<Route>>> =Arc::new(Mutex::new(vec![route])) ;
-        let cors = Arc::new(Mutex::new(CORSHandler::inert()));
-        let check = Checkpoint::new(vec!["/hello".into()], check());
-        let checkpoints = Arc::new(Mutex::new(vec![check]));
-        assert_eq!(StatusCode::BadRequest, route_request(routes, &request, cors, checkpoints).unwrap().status);
-     }
-
-     // With route check
-     #[test]
-    fn route_check_valid(){
-        
-        let mut route = Route::new("/hello".into(), HttpMethod::GET);
-        route.add_check(check());
-        let mut headers : HashMap<String, String>= HashMap::new();
-        headers.insert("security".into(), "value".into());
-        let request = Request {method: HttpMethod::GET, url: "/hello".into(), headers: HashMap::new(), cookies: HashMap::new(), param: headers, body: String::new() };
-        let routes : Arc<Mutex<Vec<Route>>> =Arc::new(Mutex::new(vec![route])) ;
-        let cors = Arc::new(Mutex::new(CORSHandler::inert()));
-        let check = Checkpoint::new(vec!["/hello".into()], check());
-        let checkpoints = Arc::new(Mutex::new(vec![check]));
-        assert_eq!(StatusCode::Ok, route_request(routes, &request, cors, checkpoints).unwrap().status);
-     }
-
-     #[test]
-    fn route_check_invalid(){
-        let mut route = Route::new("/hello".into(), HttpMethod::GET);
-        route.add_check(check());
-        let request = Request {method: HttpMethod::GET, url: "/hello".into(), headers: HashMap::new(), cookies: HashMap::new(), param: HashMap::new(), body: String::new() };
-        let routes : Arc<Mutex<Vec<Route>>> =Arc::new(Mutex::new(vec![route])) ;
-        let cors = Arc::new(Mutex::new(CORSHandler::inert()));
-        let check = Checkpoint::new(vec!["/hello".into()], check());
-        let checkpoints = Arc::new(Mutex::new(vec![check]));
-        assert_eq!(StatusCode::BadRequest, route_request(routes, &request, cors, checkpoints).unwrap().status);
-     }
-
-
-
 }
