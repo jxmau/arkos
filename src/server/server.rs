@@ -63,7 +63,7 @@ impl Server
     /// Start up the server.
     pub fn serve(&self){
 
-        env_logger::init();
+
 
         info!("{} route(s) found.", &self.routes.len());
         if self.cors_handler.activated {
