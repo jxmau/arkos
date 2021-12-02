@@ -11,6 +11,7 @@ use log::{error, info, trace};
 
 use tokio::task;
 
+use crate::core::method::{HttpMethod};
 use crate::handler::http1::handle_http1_request;
 use crate::server::cors::CORSHandler;
 
@@ -22,6 +23,7 @@ use crate::wrapper::response_factory::{generate_response_from_status_code, conve
 use super::checkpoint::Checkpoint;
 
 use super::protocol::Protocol;
+
 use super::route::Route;
 
 pub struct Server{
@@ -127,28 +129,28 @@ fn handle_request(stream: Arc<Mutex<TcpStream>>, routes: Arc<Mutex<Vec<Route>>>,
     // TODO: Update that
     let mut protocol = Protocol::Error;
 
-    let response : Response = match Protocol::parse_from_raw(&b) {
+    let (response, method)  : (Response, HttpMethod) = match Protocol::parse_from_raw(&b) {
         Ok(protocol_parsed) => match protocol_parsed {
             Protocol::Http1(v) => {
                 protocol = Protocol::Http1(v);
                 trace!("Request received has Protocol HTTP/1.{} - Routed for Request handling", v);
                 match handle_http1_request(&v, routes, &b, cors, checkpoints) {
-                    Ok(response) => response,
-                    Err(e) => generate_response_from_status_code(e),
+                    Ok((response, method)) => (response, method),
+                    Err(e) => (generate_response_from_status_code(e), HttpMethod::GET),
                 }
             },
             _ => {            
             trace!("Fail to know which Transfert Protocol Request used. Returning 501 HTTP Version Not Supported");
-            generate_response_from_status_code(StatusCode::HTTPVersionNotSupported)
+            (generate_response_from_status_code(StatusCode::HTTPVersionNotSupported), HttpMethod::GET)
         }},
         _ => {
             trace!("Fail to know which Transfert Protocol Request used. Returning 501 HTTP Version Not Supported");
-            generate_response_from_status_code(StatusCode::HTTPVersionNotSupported)
+            (generate_response_from_status_code(StatusCode::HTTPVersionNotSupported), HttpMethod::GET)
         }
     };
 
 
-    let response: String = convert_response(response, protocol);
+    let response: String = convert_response(response, protocol, method);
 
     stream.write(response.as_bytes())?;
 

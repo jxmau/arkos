@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{server::{protocol::Protocol, response::Response}, core::{status::StatusCode, status::HttpStatusCode, content::ContentType}};
+use crate::{server::{protocol::Protocol, response::Response}, core::{status::StatusCode, status::HttpStatusCode, content::ContentType, method::{HttpMethod}}};
 
 use super::cookie_factory::generate_header;
 
@@ -12,15 +12,15 @@ pub fn generate_response_from_status_code(code: StatusCode) -> Response {
     Response {status: code, content_type: ContentType::Text, headers: HashMap::new(), cookies: Vec::new(), body: "".into()}
 }
 
-pub fn convert_response(response: Response, protocol: Protocol) -> String {
+pub fn convert_response(response: Response, protocol: Protocol, method: HttpMethod) -> String {
     match protocol {
-        Protocol::Http1(v) => convert_http1(response, Protocol::Http1(v)),
-        _ => convert_http1(generate_response_from_status_code(StatusCode::MethodNotAllowed), Protocol::Http1(0))
+        Protocol::Http1(v) => convert_http1(response, Protocol::Http1(v), method),
+        _ => convert_http1(generate_response_from_status_code(StatusCode::MethodNotAllowed), Protocol::Http1(0), method)
     }
 }
 
 // Convert a response to a String to be sent back - Needs HTTP Protocol.
-fn convert_http1(response: Response, protocol: Protocol) -> String {
+fn convert_http1(response: Response, protocol: Protocol, method: HttpMethod) -> String {
     let mut response = response;
     let mut headers = String::new();
     response.headers.insert("Content-Length".to_string(), response.body.len().to_string());
@@ -37,10 +37,16 @@ fn convert_http1(response: Response, protocol: Protocol) -> String {
         headers.push_str(&entry)
     }
 
-    let s : String = format!("HTTP/1.1 {} {}\r\n{}\r\n{}", 
-        response.status.get_code(), response.status.get_title(),
-        headers, 
-        response.body
-    ) ;
+    // 1. Add the First line and the Headers.
+    let mut s = format!("HTTP/1.{} {} {}\r\n{}", 
+    protocol.get_version(),
+    response.status.get_code(), response.status.get_title(),
+    headers, 
+    );
+    // 2. Add the body only if the Method is not HEAD
+    if method.eq(&HttpMethod::GET) {
+        s.push_str(&format!("\r\n{}", response.body));
+    }
+
     s
 }

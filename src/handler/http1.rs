@@ -9,7 +9,7 @@ use crate::{server::{route::Route, cors::CORSHandler, checkpoint::Checkpoint, re
 // The route
 // 
 
-pub fn handle_http1_request(p_subversion: &u8, paths: Arc<Mutex<Vec<Route>>>, req: &str, cors: Arc<Mutex<CORSHandler>>, checkpoints: Arc<Mutex<Vec<Checkpoint>>>) -> Result<Response, StatusCode> {
+pub fn handle_http1_request(p_subversion: &u8, paths: Arc<Mutex<Vec<Route>>>, req: &str, cors: Arc<Mutex<CORSHandler>>, checkpoints: Arc<Mutex<Vec<Checkpoint>>>) -> Result<(Response, HttpMethod), StatusCode> {
     
     // * Handler:
     // 0. Check if protocol sub-version is taken in charge.
@@ -41,7 +41,7 @@ pub fn handle_http1_request(p_subversion: &u8, paths: Arc<Mutex<Vec<Route>>>, re
     trace!("Request {} {} has passed the Server Checkpoints.", request.method.to_string(), request.url);
     
     // 3. Find route of Request
-    // 4. Pass the CORS Handler if necessary
+    // 4. If no HEAD Route found, find the GET Request -Pass the CORS Handler if necessary
     let routes = paths.lock().unwrap();
     let route = routes.iter().find(|r| request.url.eq(&r.url) && request.method.eq(&r.method));
 
@@ -57,7 +57,7 @@ pub fn handle_http1_request(p_subversion: &u8, paths: Arc<Mutex<Vec<Route>>>, re
                         match cors.generate_response() {
                             Ok(r) => {
                                 debug!("Request {} {} has been rerouted to the CORS Handler.", request.method.to_string(), request.url);
-                                return Ok(r);
+                                return Ok((r, HttpMethod::GET));
                             }
                             Err(_) => {
                                 debug!("An issue has occurent when generating CORS Handler for Request {} {}", request.method.to_string(), request.url);
@@ -67,8 +67,23 @@ pub fn handle_http1_request(p_subversion: &u8, paths: Arc<Mutex<Vec<Route>>>, re
                     }
                 }
             }
-            debug!("Server hasn't found a Route for Request {} {} - Returning 404 Not Found", request.method.to_string(), request.url);
-            return Err(StatusCode::NotFound)
+
+            if request.method.eq(&HttpMethod::HEAD) {
+                trace!("No Route for Request {} {} - Searching for a GET method", request.method.to_string(), request.url);
+                match routes.iter().find(|r| r.url.eq(&request.url) && r.method.eq(&HttpMethod::GET)) {
+                    Some(r) => {
+                        trace!("A GET Route has been found for Request {} {}", request.method.to_string(), request.url);
+                        r
+                    }
+                    None => {
+                        trace!("No GET Route has been found for Request {} {}", request.method.to_string(), request.url);
+                        return Err(StatusCode::NotFound);
+                    }
+                }
+            } else {
+                debug!("Server hasn't found a Route for Request {} {} - Returning 404 Not Found", request.method.to_string(), request.url);
+                return Err(StatusCode::NotFound)
+            }
         }
     };
 
@@ -108,7 +123,7 @@ pub fn handle_http1_request(p_subversion: &u8, paths: Arc<Mutex<Vec<Route>>>, re
     };
 
     debug!("Request {} {} : Returning {} {}.", request.method.to_string(), request.url, response.status.get_code(), response.status.get_title());
-    Ok(response)
+    Ok((response, request.method))
 
 }
 
@@ -142,7 +157,7 @@ mod test {
         let routes : Arc<Mutex<Vec<Route>>> =Arc::new(Mutex::new(vec![route])) ;
         let cors = Arc::new(Mutex::new(CORSHandler::inert()));
         let checkpoints = Arc::new(Mutex::new(vec![]));
-        assert_eq!(StatusCode::Ok , handle_http1_request(&1, routes, &request, cors, checkpoints).unwrap().status);
+        assert_eq!(StatusCode::Ok , handle_http1_request(&1, routes, &request, cors, checkpoints).unwrap().0.status);
     }
     
     #[test]
@@ -164,7 +179,7 @@ mod test {
         let routes : Arc<Mutex<Vec<Route>>> =Arc::new(Mutex::new(vec![route])) ;
         let cors = Arc::new(Mutex::new(CORSHandler::inert()));
         let checkpoints = Arc::new(Mutex::new(vec![]));
-        assert_eq!(StatusCode::Ok, handle_http1_request(&1, routes, &request, cors, checkpoints).unwrap().status);
+        assert_eq!(StatusCode::Ok, handle_http1_request(&1, routes, &request, cors, checkpoints).unwrap().0.status);
     }
     
     #[test]
@@ -174,9 +189,29 @@ mod test {
         let routes : Arc<Mutex<Vec<Route>>> =Arc::new(Mutex::new(vec![route])) ;
         let cors = Arc::new(Mutex::new(CORSHandler::default()));
         let checkpoints = Arc::new(Mutex::new(vec![]));
-        assert_eq!(StatusCode::Ok , handle_http1_request(&1, routes, &request, cors, checkpoints).unwrap().status);
+        assert_eq!(StatusCode::Ok , handle_http1_request(&1, routes, &request, cors, checkpoints).unwrap().0.status);
     }
     
+    // HEAD Implementation
+    #[test]
+    fn head_valid() {
+        let route = Route::new("/hello", HttpMethod::GET);
+        let request = "HEAD /hello HTTP/1.1".to_string();
+        let routes : Arc<Mutex<Vec<Route>>> =Arc::new(Mutex::new(vec![route])) ;
+        let cors = Arc::new(Mutex::new(CORSHandler::default()));
+        let checkpoints = Arc::new(Mutex::new(vec![]));
+        assert_eq!(StatusCode::Ok , handle_http1_request(&1, routes, &request, cors, checkpoints).unwrap().0.status);
+    }
+
+    #[test]
+    fn head_invalid() {
+        let route = Route::new("/hello", HttpMethod::POST);
+        let request = "HEAD /hello HTTP/1.1".to_string();
+        let routes : Arc<Mutex<Vec<Route>>> =Arc::new(Mutex::new(vec![route])) ;
+        let cors = Arc::new(Mutex::new(CORSHandler::default()));
+        let checkpoints = Arc::new(Mutex::new(vec![]));
+        assert_eq!(Err(StatusCode::NotFound) , handle_http1_request(&1, routes, &request, cors, checkpoints));
+    }
 
 
     fn check() -> Arc<dyn Fn(Request) -> Result<(), StatusCode> + Send + Sync> {
@@ -201,7 +236,7 @@ mod test {
         let cors = Arc::new(Mutex::new(CORSHandler::inert()));
         let check = Checkpoint::new(vec!["/hello".into()], check());
         let checkpoints = Arc::new(Mutex::new(vec![check]));
-        assert_eq!(StatusCode::Ok, handle_http1_request(&1, routes, &request, cors, checkpoints).unwrap().status);
+        assert_eq!(StatusCode::Ok, handle_http1_request(&1, routes, &request, cors, checkpoints).unwrap().0.status);
      }
 
      #[test]
@@ -228,7 +263,7 @@ mod test {
         let cors = Arc::new(Mutex::new(CORSHandler::inert()));
         let check = Checkpoint::new(vec!["/hello".into()], check());
         let checkpoints = Arc::new(Mutex::new(vec![check]));
-        assert_eq!(StatusCode::Ok, handle_http1_request(&1, routes, &request, cors, checkpoints).unwrap().status);
+        assert_eq!(StatusCode::Ok, handle_http1_request(&1, routes, &request, cors, checkpoints).unwrap().0.status);
      }
 
      #[test]

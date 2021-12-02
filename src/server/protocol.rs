@@ -54,7 +54,14 @@ impl Protocol {
             Self::Http1(v) => v >= &supported_from,
             _ => false,
         }
-    } 
+    }
+    
+    pub fn get_version(&self) -> &u8 {
+        match self {
+            Self::Http1(v) => v,
+            _ => &0,
+        }
+    }
 
 }
 
