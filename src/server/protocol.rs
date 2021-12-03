@@ -3,7 +3,7 @@ use std::str::FromStr;
 use crate::core::status::StatusCode;
 
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Protocol{
     Http1(u8), // HTTP/1.1
     Error,
