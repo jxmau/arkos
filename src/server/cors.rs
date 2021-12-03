@@ -8,6 +8,7 @@ use super::response::Response;
 
 
 /// A CORSHandler is a struct can will generate a response with specified Headers.
+#[derive(Clone)]
 pub struct CORSHandler {
     #[doc(hidden)]
     pub activated: bool,
@@ -89,7 +90,6 @@ impl CORSHandler {
         response.add_header("Access-Control-Allow-Methods".into(), formatter(&methodify(&self.methods_allowed)));
         response.add_header("Access-Control-Max-Age".into(), self.max_age.to_string());
         response.add_header("Access-Control-Allow-Origin".into(), self.origin.first().unwrap().to_string());
-        response.convert();
         Ok(response)
     }
 

@@ -1,20 +1,19 @@
 
 #![doc = include_str!( "../../docs/cookie.md")]
 
-
 use log::trace;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Cookie {
-    name: String,
-    value: String,
-    expires: String, 
-    max_age: u32,
-    path: String,
-    domain: String,
-    secure: bool,
-    http_only: bool,
-    same_site: String,
+    pub name: String,
+    pub value: String,
+    pub expires: String, 
+    pub max_age: u32,
+    pub path: String,
+    pub domain: String,
+    pub secure: bool,
+    pub http_only: bool,
+    pub same_site: String,
 }
 
 impl Cookie {
@@ -99,25 +98,7 @@ impl Cookie {
         result
     }
     
-    #[doc(hidden)]
-    pub fn generate_header(&self) -> String {
-        let mut cookie = format!("{}={}", &self.name, &self.value);
-        
-        let add = |prefix: &str, to_add: &str| -> String {
-            let r = format!("; {}{}", prefix ,to_add);
-            r
-        };
 
-        if self.max_age > 1 { cookie.push_str(&add("Domain=", &self.max_age.to_string())); }
-        if self.domain.len() > 1 { cookie.push_str(&add("Domain=", &self.domain)); }
-        if self.expires.len() > 1 { cookie.push_str(&add("Expires=", &self.expires)); }
-        if self.path.len() > 1 { cookie.push_str(&add("Path=", &self.path)); }
-        if self.same_site.len() > 1 { cookie.push_str(&add("SameSite=", &self.same_site)); }
-        if self.http_only { cookie.push_str(&add("", "HttpOnly"));  }
-        if self.secure { cookie.push_str(&add("","Secure"));  }
-        trace!("Set-Cookie header for Cookie of name {} has been generated", self.name);
-        cookie
-    }
 
     
     // is_valid()

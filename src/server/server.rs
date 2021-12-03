@@ -1,20 +1,29 @@
 
-
-
-
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::net::TcpListener;
+
 use std::option::Option;
 
-use log::{debug, error, info, warn};
+use std::sync::{Mutex, Arc};
 
+use log::{error, info, trace};
+
+use tokio::task;
+
+
+use crate::handler::http1::handle_http1_request;
 use crate::server::cors::CORSHandler;
-use crate::server::request::Request;
-use crate::server::response::Response;
-use crate::core::status::{HttpStatusCode, StatusCode};
-use crate::core::method::HttpMethod;
 
+
+use crate::core::status::{ StatusCode};
+use crate::wrapper::response_factory::ResponseFactory;
+
+
+
+use super::checkpoint::Checkpoint;
+
+use super::protocol::Protocol;
 
 use super::route::Route;
 
@@ -27,7 +36,12 @@ pub struct Server{
     routes: Vec<Route>,
     #[doc(hidden)]
     cors_handler: CORSHandler,
+    #[doc(hidden)]
+    checkpoints: Vec<Checkpoint>,
 }
+
+
+
 
 impl Server
 
@@ -35,7 +49,7 @@ impl Server
 
     /// Will return an empty Server with an inert (deactivated) CORSHandler.
     pub fn new(address: [usize; 4], port: u32 ) -> Option<Server> {
-        Some(Server {address, port, routes: Vec::new(), cors_handler: CORSHandler::inert() })
+        Some(Server {address, port, routes: Vec::new(), cors_handler: CORSHandler::inert(), checkpoints: Vec::new()})
     }
 
     /// Will set the routes as Arkos doesn't use a Router kind of struct.
@@ -52,7 +66,7 @@ impl Server
     /// Start up the server.
     pub fn serve(&self){
 
-        env_logger::init();
+
 
         info!("{} route(s) found.", &self.routes.len());
         if self.cors_handler.activated {
@@ -79,11 +93,20 @@ impl Server
         for stream in listener.incoming(){
 
             match stream {
-                Ok(mut s) => {
-                    match handle_request(&mut s, &self.routes, &self.cors_handler) {
-                        Ok(_s) => _s,
-                        Err(_) => continue,
-                    };
+                Ok(s) => {
+
+                    let stream = Arc::new(Mutex::new(s));
+                    let routes = Arc::new(Mutex::new(self.routes.clone()));
+                    let cors = Arc::new(Mutex::new(self.cors_handler.clone()));
+                    let checkpoints = Arc::new(Mutex::new(self.checkpoints.clone()));
+                    let _handle = task::spawn(async {
+
+                        match handle_request(stream, routes, cors, checkpoints) {
+                            Ok(_s) => trace!("Succesful handling of request."),
+                            Err(_) => trace!("Failed to handle request."),
+                        };
+                    });
+
                 },
                 Err(_) =>
                 continue,
@@ -95,130 +118,40 @@ impl Server
 }
 
 #[doc(hidden)]
-fn handle_request(stream: &mut TcpStream, routes: &Vec<Route>, cors: &CORSHandler) -> std::io::Result<()>{
+fn handle_request(stream: Arc<Mutex<TcpStream>>, routes: Arc<Mutex<Vec<Route>>>, cors: Arc<Mutex<CORSHandler>>, checkpoints: Arc<Mutex<Vec<Checkpoint>>>) -> std::io::Result<()>{
+    
+    let mut stream = stream.lock().unwrap();
     let mut buffer = [0; 1024];
     let bytes_read = stream.read(&mut buffer)?;
 
     let b = String::from_utf8_lossy(&buffer[..bytes_read]);
 
-    let mut response : Response = match Request::parse(&b) {
-        Ok(request) => match route_request(&routes, &request, &cors) {
-            Ok(response) => response,
-            Err(e) => Response::generate_from_status_code(e),
-        },
-        Err(_) => {
-            error!("Failed to parsed incoming request.");
-            Response::generate_from_status_code(StatusCode::InternalServerError)},
+
+
+
+    let mut response_factory  : ResponseFactory = match Protocol::parse_from_raw(&b) {
+        Ok(protocol_parsed) => match protocol_parsed {
+            Protocol::Http1(v) => {
+                trace!("Request received has Protocol HTTP/1.{} - Routed for Request handling", v);
+                match handle_http1_request(&v, routes, &b, cors, checkpoints) {
+                    Ok(r) => r,
+                    Err(e) => ResponseFactory::for_status_code(Protocol::Http1(v), e),
+                }
+            },
+            _ => {            
+            trace!("Fail to know which Transfert Protocol Request used. Returning 505 HTTP Version Not Supported");
+            ResponseFactory::for_status_code(Protocol::Http1(0), StatusCode::HTTPVersionNotSupported)
+        }},
+        _ => {
+            trace!("Fail to know which Transfert Protocol Request used. Returning 505 HTTP Version Not Supported");
+            ResponseFactory::for_status_code(Protocol::Http1(0), StatusCode::HTTPVersionNotSupported)
+        }
     };
 
 
-    let response: String = response.convert();
+    let response: String = response_factory.consume();
 
     stream.write(response.as_bytes())?;
 
     Ok(())
-}
-
-#[doc(hidden)]
-fn route_request(paths: &Vec<Route>, req: &Request, cors: &CORSHandler) -> Result<Response, StatusCode> {
-    let mut path = None;
-
-    for p in paths {
-        if req.url.eq(&p.url) && req.method.eq(&p.method){
-            path = Some(p);
-            break;
-        }
-    }
-
-    match path {
-        Some(p) => match p.is_request_valid(&req) {
-                true => Ok(ask_response(&p, &req)),
-                false => {
-                    debug!("Request {} {} was deemed invalid : Returning 400 Bad Request.", req.method.to_string(), req.url);
-                    Err(StatusCode::BadRequest)},
-            },
-        None => match handle_cors(paths, req, cors) {
-            Some(s) => {
-                debug!("Request {} {} has been rerouted for CORS handling :  Returning {} {}.", req.method.to_string(), req.url, s.status.get_code(), s.status.get_title());
-                Ok(s)},
-            None => {
-                debug!("No route found for Request {} {} : Returning 404 Not Found.", req.method.to_string(), req.url );
-                Err(StatusCode::NotFound)},
-        } 
-    }
-
-}
-
-#[doc(hidden)]
-fn ask_response(route: &Route, request: &Request) -> Response {
-    let response = match &route.response {
-        Some(r) => match (r)(request.to_owned()) {
-            Ok(s) => s, 
-            Err(e) => Response::generate_from_status_code(e),
-        },
-        None => {
-            warn!("Route found for Request {} {} , but no Response has been set.", request.method.to_string(), request.url);
-            Response::default()},
-    };
-    debug!("Request {} {} : Returning {} {}.", request.method.to_string(), request.url, response.status.get_code(), response.status.get_title());
-    response
-}
-
-#[doc(hidden)]
-fn handle_cors(paths: &Vec<Route>, req: &Request, cors: &CORSHandler) -> Option<Response> {
-    
-    if !cors.activated {
-        return None
-    }
-
-    for p in paths {
-        if req.url.eq(&p.url) && req.method.eq(&HttpMethod::OPTIONS) {
-            return Some(match cors.generate_response(){
-                Ok(s) => return Some(s),
-                Err(_) => Response::generate_from_status_code(StatusCode::InternalServerError), 
-            });
-        }
-    }
-
-    None
-}
-
-    
-
-
-#[cfg(test)]
-mod test {
-
-    use super::*;
-    use std::collections::HashMap;
-
-    #[test]
-    fn not_found_request(){
-       let request = Request {method: HttpMethod::GET, url: "/hello".into(), headers: HashMap::new(), cookies: HashMap::new(), param: HashMap::new(), body: String::new() };
-       assert_eq!(Err(StatusCode::NotFound), route_request(&Vec::new(), &request, &CORSHandler::inert()));
-    }
-
-    #[test]
-    fn request_found(){
-        let route = Route::new("/hello", HttpMethod::GET);
-        let request = Request {method: HttpMethod::GET, url: "/hello".into(), headers: HashMap::new(), cookies: HashMap::new(), param: HashMap::new(), body: String::new() };
-        assert_eq!(StatusCode::Ok , route_request(&vec![route], &request, &CORSHandler::inert()).unwrap().status);
-    }
-
-    #[test]
-    fn bad_request(){
-        let mut route = Route::new("/hello", HttpMethod::GET);
-        route.add_required_url_param("name");
-        let request = Request {method: HttpMethod::GET, url: "/hello".into(), headers: HashMap::new(), cookies: HashMap::new(), param: HashMap::new(), body: String::new() };
-        assert_eq!(Err(StatusCode::BadRequest) , route_request(&vec![route], &request, &CORSHandler::inert()));
-    }
-
-    #[test]
-    fn active_cors(){
-        let route = Route::new("/hello", HttpMethod::GET);
-        let cors = CORSHandler::default();
-        let request = Request {method: HttpMethod::GET, url: "/hello".into(), headers: HashMap::new(), cookies: HashMap::new(), param: HashMap::new(), body: String::new() };
-        assert_eq!(StatusCode::Ok , route_request(&vec![route], &request, &cors).unwrap().status);
-    }
-
 }

@@ -1,17 +1,18 @@
 pub trait HttpStatusCode {
     fn get_code(&self) -> u16;
     fn get_title(&self) -> String;
+    fn generate_headers(&self) -> String;
 }
 
 // Rust, just implement Java's enum for crying out loud
 
 #[derive( Clone, Debug, PartialEq, Eq, Hash)]
 pub enum StatusCode {
-    Continue, SwitchingProtocols, Processing, EarlyHints,
+    Continue, SwitchingProtocols(String), Processing, EarlyHints,
     Ok, Created, Accepted, NonAuthoritativeInformations, NoContent, ResetContent, PartialContent, MultiStatus, AlreadyReported, ContentDifferent, IMUsed,
-    MultipleChoices, MovedPermanently, Found, SeeOther, NotModified, UseProxy, SwitchProxy, TemporaryRedirect, PermanentRedirect,
-    BadRequest, Unauthorized, PaymentRequired, Forbidden, NotFound, MethodNotAllowed, NotAcceptable, ProxyAuthenticationRequired, RequestTimeout, Conflict, Gone, LengthRequired, PreconditionFailed, PayloadTooLarge, URIToolLong, UnsupportedMediaType, RangeNotSatisfiable, ExpectationFailed, ImATeaPot, MisdirectionRequest, UnprocessableEntity, Locked, FailedDependency, TooEarly, UpgradeRequired, PreconditionRequired, TooManyRequests, RequestHeaderFieldsTooLarge, UnavailableForLegalReasons,
-    InternalServerError, NotImplemented, BadGateway, ServiceUnavailable, GatewayTimeout, HTTPVersionNotSupported, VariantAlsoNegotiates, InsufficientStorage, LoopDetected, NotExtended, NetworkAuthenticationRequired,
+    MultipleChoices, MovedPermanently(String), Found, SeeOther, NotModified, UseProxy, SwitchProxy, TemporaryRedirect(String), PermanentRedirect(String),
+    BadRequest, Unauthorized, PaymentRequired, Forbidden, NotFound, MethodNotAllowed, NotAcceptable, ProxyAuthenticationRequired, RequestTimeout, Conflict, Gone, LengthRequired, PreconditionFailed, PayloadTooLarge, URIToolLong, UnsupportedMediaType, RangeNotSatisfiable, ExpectationFailed, ImATeaPot, MisdirectionRequest, UnprocessableEntity, Locked, FailedDependency, TooEarly, UpgradeRequired(String), PreconditionRequired, TooManyRequests(String), RequestHeaderFieldsTooLarge, UnavailableForLegalReasons,
+    InternalServerError, NotImplemented, BadGateway, ServiceUnavailable(String), GatewayTimeout, HTTPVersionNotSupported, VariantAlsoNegotiates, InsufficientStorage, LoopDetected, NotExtended, NetworkAuthenticationRequired,
     Custom(u16, String),
 }
 
@@ -20,7 +21,7 @@ impl HttpStatusCode for StatusCode {
     fn get_code(&self) -> u16{
         match self {
             StatusCode::Continue => 100, 
-            StatusCode::SwitchingProtocols => 101, 
+            StatusCode::SwitchingProtocols(_) => 101, 
             StatusCode::Processing => 102, 
             StatusCode::EarlyHints => 103,
             StatusCode::Ok => 200, 
@@ -35,14 +36,14 @@ impl HttpStatusCode for StatusCode {
             StatusCode::ContentDifferent => 210, 
             StatusCode::IMUsed => 226,
             StatusCode::MultipleChoices => 300, 
-            StatusCode::MovedPermanently => 301, 
+            StatusCode::MovedPermanently(_) => 301, 
             StatusCode::Found => 302, 
             StatusCode::SeeOther => 303, 
             StatusCode::NotModified => 304, 
             StatusCode::UseProxy => 305, 
             StatusCode::SwitchProxy => 306, 
-            StatusCode::TemporaryRedirect => 307, 
-            StatusCode::PermanentRedirect => 308,
+            StatusCode::TemporaryRedirect(_) => 307, 
+            StatusCode::PermanentRedirect(_) => 308,
             StatusCode::BadRequest => 400, 
             StatusCode::Unauthorized => 401, 
             StatusCode::PaymentRequired => 402, 
@@ -67,15 +68,15 @@ impl HttpStatusCode for StatusCode {
             StatusCode::Locked => 423, 
             StatusCode::FailedDependency => 424, 
             StatusCode::TooEarly => 425, 
-            StatusCode::UpgradeRequired => 426, 
+            StatusCode::UpgradeRequired(_) => 426, 
             StatusCode::PreconditionRequired => 428, 
-            StatusCode::TooManyRequests => 429, 
+            StatusCode::TooManyRequests(_) => 429, 
             StatusCode::RequestHeaderFieldsTooLarge => 431, 
             StatusCode::UnavailableForLegalReasons => 451,
             StatusCode::InternalServerError => 500, 
             StatusCode::NotImplemented => 501, 
             StatusCode::BadGateway => 502, 
-            StatusCode::ServiceUnavailable => 503, 
+            StatusCode::ServiceUnavailable(_) => 503, 
             StatusCode::GatewayTimeout => 504, 
             StatusCode::HTTPVersionNotSupported => 505, 
             StatusCode::VariantAlsoNegotiates => 506, 
@@ -90,7 +91,7 @@ impl HttpStatusCode for StatusCode {
     fn get_title(&self) -> String {
         let msg = match &self {
             StatusCode::Continue => "Continue", 
-            StatusCode::SwitchingProtocols => "Switching Protocol", 
+            StatusCode::SwitchingProtocols(_) => "Switching Protocol", 
             StatusCode::Processing => "Processing", 
             StatusCode::EarlyHints => "Early Hints",
             StatusCode::Ok => "Ok", 
@@ -105,14 +106,14 @@ impl HttpStatusCode for StatusCode {
             StatusCode::ContentDifferent => "Content Different", 
             StatusCode::IMUsed => "IM Used",
             StatusCode::MultipleChoices => "Multiple Choices", 
-            StatusCode::MovedPermanently => "Moved Permanently", 
+            StatusCode::MovedPermanently(_) => "Moved Permanently", 
             StatusCode::Found => "Found", 
             StatusCode::SeeOther => "See Other", 
             StatusCode::NotModified => "Not Modified", 
             StatusCode::UseProxy => "Use Proxy", 
             StatusCode::SwitchProxy => "Switch Proxy", 
-            StatusCode::TemporaryRedirect => "Temporary Redirect", 
-            StatusCode::PermanentRedirect => "Permanent Redirect",
+            StatusCode::TemporaryRedirect(_) => "Temporary Redirect", 
+            StatusCode::PermanentRedirect(_) => "Permanent Redirect",
             StatusCode::BadRequest => "Bad Redirect", 
             StatusCode::Unauthorized => "Unauthorized", 
             StatusCode::PaymentRequired => "Payment Required", 
@@ -137,15 +138,15 @@ impl HttpStatusCode for StatusCode {
             StatusCode::Locked => "Locked", 
             StatusCode::FailedDependency => "Failed Dependency", 
             StatusCode::TooEarly => "Too Early", 
-            StatusCode::UpgradeRequired => "Upgrade Required", 
+            StatusCode::UpgradeRequired(_) => "Upgrade Required", 
             StatusCode::PreconditionRequired => "Precondition Required", 
-            StatusCode::TooManyRequests => "Too Many Requests", 
+            StatusCode::TooManyRequests(_) => "Too Many Requests", 
             StatusCode::RequestHeaderFieldsTooLarge => "Request Header Fields Too Large", 
             StatusCode::UnavailableForLegalReasons => "Unavailable For Legal Reasons",
             StatusCode::InternalServerError => "Internal Server Error", 
             StatusCode::NotImplemented => "Not Implemented", 
             StatusCode::BadGateway => "Bad Gateway", 
-            StatusCode::ServiceUnavailable => "Service Unavailable", 
+            StatusCode::ServiceUnavailable(_) => "Service Unavailable", 
             StatusCode::GatewayTimeout => "Gateway Timeout", 
             StatusCode::HTTPVersionNotSupported => "HTTP Version Not Supported", 
             StatusCode::VariantAlsoNegotiates => "Variant Also Negotiates", 
@@ -158,6 +159,15 @@ impl HttpStatusCode for StatusCode {
         msg.to_string()
     }
 
+    fn generate_headers(&self) -> String {
+        match self {
+            StatusCode::SwitchingProtocols(u) | StatusCode::UpgradeRequired(u) => format!("Upgrade: {}\r\n",u),
+            StatusCode::MovedPermanently(l) | StatusCode::PermanentRedirect(l) | StatusCode::TemporaryRedirect(l) => format!("Location: {}\r\n", l),
+            StatusCode::TooManyRequests(d) | StatusCode::ServiceUnavailable(d) => format!("Location: {}\r\n", d),
+            _ => "".into(),
+        }
+    }
+
 
 }
 
@@ -166,7 +176,7 @@ impl StatusCode {
     pub fn from_str(val: &str) -> StatusCode {
         match val {
             "100" => StatusCode::Ok, 
-            "101" => StatusCode::SwitchingProtocols, 
+            "101" => StatusCode::SwitchingProtocols("".into()), 
             "102" => StatusCode::Processing , 
             "103" => StatusCode::EarlyHints,
             "200" => StatusCode::Ok , 
@@ -180,15 +190,15 @@ impl StatusCode {
             "208" => StatusCode::AlreadyReported  , 
             "210" => StatusCode::ContentDifferent  , 
             "226" => StatusCode::IMUsed,
-            "300" => StatusCode::MultipleChoices  , 
-            "301" => StatusCode::MovedPermanently , 
+            "300" => StatusCode::MultipleChoices , 
+            "301" => StatusCode::MovedPermanently("".into()) , 
             "302" => StatusCode::Found  , 
             "303" => StatusCode::SeeOther  , 
             "304" => StatusCode::NotModified  , 
             "305" => StatusCode::UseProxy  , 
             "306" => StatusCode::SwitchProxy  , 
-            "307" => StatusCode::TemporaryRedirect  , 
-            "308" => StatusCode::PermanentRedirect,
+            "307" => StatusCode::TemporaryRedirect("".into())  , 
+            "308" => StatusCode::PermanentRedirect("".into()),
             "400" => StatusCode::BadRequest  , 
             "401" => StatusCode::Unauthorized  , 
             "402" => StatusCode::PaymentRequired  , 
@@ -213,15 +223,15 @@ impl StatusCode {
             "423" => StatusCode::Locked  , 
             "424" => StatusCode::FailedDependency  , 
             "425" => StatusCode::TooEarly  , 
-            "426" => StatusCode::UpgradeRequired  , 
+            "426" => StatusCode::UpgradeRequired("".into())  , 
             "428" => StatusCode::PreconditionRequired  , 
-            "429" => StatusCode::TooManyRequests  , 
+            "429" => StatusCode::TooManyRequests("".into())  , 
             "431" => StatusCode::RequestHeaderFieldsTooLarge  , 
             "451" => StatusCode::UnavailableForLegalReasons,
             "501" => StatusCode::InternalServerError  , 
             "502" => StatusCode::NotImplemented  , 
             "503" => StatusCode::BadGateway  , 
-            "504" => StatusCode::ServiceUnavailable  , 
+            "504" => StatusCode::ServiceUnavailable("".into())  , 
             "505" => StatusCode::GatewayTimeout  , 
             "506" => StatusCode::HTTPVersionNotSupported  , 
             "507" => StatusCode::VariantAlsoNegotiates  , 
