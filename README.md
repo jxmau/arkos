@@ -1,37 +1,61 @@
-# Arkos (v0.1.0 - UNSTABLE )
+# Arkos (v0.1.1 - UNSTABLE )
 
 
 ## What is Arkos
 
-Arkos is an async HTTP/1.1 Web Server library inspired by warp and axum, and a little bit by Spring.
-
+Arkos is a HTTP Server in development inspired by other Web Server libs as axum.rs and warp.rs, also by Spring.  
 <br> 
-If you want to use a web server library, please check-out [warp](https://github.com/seanmonstar/warp) or [axum](https://github.com/tokio-rs/axum) 
+
+Arkos is experimental, therefore is not stable enough to be used in production. If you want to use a web server library, please check-out [warp](https://github.com/seanmonstar/warp) or [axum](https://github.com/tokio-rs/axum) 
 
 <br>
-If you want look around, please check the [startup guide](##)
-## Features
 
-* Http Method : GET, POST, PUT, DELETE, OPTIONS
-* Integrated CORS Handler.
-* Generation of Error Response inspired by Spring AOP.
+If you want look around, please check the [startup guide](##) <br>
+To know more about changes from the End User POV, please check the [RELEASE.md](/RELEASE.md) <br>
+To know more about changes in library inner function , please check the [CHANGES.md](/CHANGES.md) <br>
+
+## Technical Information
+
+### Protocol Version
+
+| Version | Taken in Charge | Note |
+| --- | --- | --- |
+| HTTP/0.9 | Yes | By taken is charge, it means that it will always send back a 505 StatusCode over a HTTP/1.0 Response. <br> We've got no project to handle this version. |
+| HTTP/1.0| Yes | Taken in charge, but not fully compliant to RFC 1945 |
+| HTTP/1.1 | Yes | Absolutely not Code Compliant |
+| HTTP/2 | No |  |
+| HTTP/3 | No |  |
+
+* Version not listed are not taken in charge, obviously.
 
 ### Codebase map
 
 ```
 - src/
-    |- core/ : Everything that is used by the whole library
+    |- core/ : This (pub) module is used by the End User, but is not directly used by server functionment
     |  |- method : HttpMethod 
     |  |- status : StatusCode 
     |  |- content : ContentType
+    |  |- cookie : Cookie Struct used by the End User
     |
-    |- server/ : Everything related to the functionment of the WebServer
+    |- handler/ : This (priv) module is used by the server Struct - It is used to handle request.
+        |- http1 : handle HTTP/1.x requests
+    |
+    |- server/ : This (pub) module is the server and server direct functionment
     |   |- server : Http Server struct
     |   |- route : Route struct
     |   |- resonse : Response struct, the one that is sent by a request
     |   |- request : Request struct, the one that is parsed upon TcpStream.incoming()
     |   |- cors : CORSHandler struct, Used by the server when redirecting Options request
-    |   |- cookie : Serves as a Set-Cookie header Factory
+    |   |- checkpoint : Struct used a field by the Server. Allows the end user to define global filters. Similar to service layer.
+    |   |- protocol : Enum used to know which Protocol the request uses and which Protocol to use to respond.
+    |
+    |- wrapper/ : This (priv) module is used to handle public structs and enums in the server and handlers work flow.
+    |   |- checkpoint_manager : Wrapper Struct use to consume Checkpoint structs.
+    |   |- cookie_factory : Function to generate Cookie Header
+    |   |- request_factory : Create a Request from the raw string receive on the stream
+    |   |- response_factory : Factory Struct that generates Response as String to be sent back.
+    |
 ```
 
 ## Guide : How to use Arkos

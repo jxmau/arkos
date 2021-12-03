@@ -139,11 +139,11 @@ fn handle_request(stream: Arc<Mutex<TcpStream>>, routes: Arc<Mutex<Vec<Route>>>,
                 }
             },
             _ => {            
-            trace!("Fail to know which Transfert Protocol Request used. Returning 501 HTTP Version Not Supported");
+            trace!("Fail to know which Transfert Protocol Request used. Returning 505 HTTP Version Not Supported");
             ResponseFactory::for_status_code(Protocol::Http1(0), StatusCode::HTTPVersionNotSupported)
         }},
         _ => {
-            trace!("Fail to know which Transfert Protocol Request used. Returning 501 HTTP Version Not Supported");
+            trace!("Fail to know which Transfert Protocol Request used. Returning 505 HTTP Version Not Supported");
             ResponseFactory::for_status_code(Protocol::Http1(0), StatusCode::HTTPVersionNotSupported)
         }
     };

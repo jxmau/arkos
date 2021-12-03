@@ -21,14 +21,15 @@ impl ResponseFactory {
         ResponseFactory {protocol, method: HttpMethod::GET, response, following_response: Vec::new()}
     }
 
-    // New | TODO: Should the follow up response put here? 
+
     pub fn new(protocol: Protocol, method: HttpMethod, response: Response) -> Self {
         ResponseFactory {protocol, method, response, following_response: Vec::new() }
     }
-    
-    pub fn add_followup_response_factory(&mut self, factory: ResponseFactory) {
-        self.following_response.push(factory);
-    }
+   
+    // TODO: Method is to uncommented when the 101 Continue will fully implemented and Code Compliant.
+    // pub fn add_followup_response_factory(&mut self, factory: ResponseFactory) {
+    //     self.following_response.push(factory);
+    // }
 
     // Consume
     pub fn consume(&mut self) -> String {
