@@ -83,7 +83,7 @@ fn convert_http1(response: &mut Response, protocol: Protocol, method: HttpMethod
     headers, 
     );
     // 2. Add the body only if the Method is not HEAD
-    if method.eq(&HttpMethod::GET) {
+    if !method.eq(&HttpMethod::HEAD) {
         s.push_str(&format!("\r\n{}", response.body));
     }
 
