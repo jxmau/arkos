@@ -9,7 +9,7 @@ use std::sync::{Mutex, Arc};
 
 use log::{error, info, trace};
 
-use tokio::task;
+// use tokio::task;
 
 
 use crate::handler::http1::handle_http1_request;
@@ -63,6 +63,12 @@ impl Server
         self.cors_handler = cors;
     }
 
+    /// Add a checkpoint to be executed after the Request has been parsed.
+    pub fn add_checkpoint(&mut self, checkpoint: Checkpoint) {
+        self.checkpoints.push(checkpoint);
+    }
+
+
     /// Start up the server.
     pub fn serve(&self){
 
@@ -99,7 +105,8 @@ impl Server
                     let routes = Arc::new(Mutex::new(self.routes.clone()));
                     let cors = Arc::new(Mutex::new(self.cors_handler.clone()));
                     let checkpoints = Arc::new(Mutex::new(self.checkpoints.clone()));
-                    let _handle = task::spawn(async {
+
+                    let _handle = async_std::task::spawn(async {
 
                         match handle_request(stream, routes, cors, checkpoints) {
                             Ok(_s) => trace!("Succesful handling of request."),
