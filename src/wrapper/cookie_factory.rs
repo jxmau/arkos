@@ -22,7 +22,7 @@ fn generate_header_http1(cookie: &Cookie, _version: &u8) -> String {
 
     };
 
-    if cookie.max_age > 1 { cookie_formated.push_str(&add("Domain=", &cookie.max_age.to_string())); }
+    if cookie.max_age > 1 { cookie_formated.push_str(&add("Max-Age=", &cookie.max_age.to_string())); }
     if cookie.domain.len() > 1 { cookie_formated.push_str(&add("Domain=", &cookie.domain)); }
     if cookie.expires.len() > 1 { cookie_formated.push_str(&add("Expires=", &cookie.expires)); }
     if cookie.path.len() > 1 { cookie_formated.push_str(&add("Path=", &cookie.path)); }
