@@ -114,7 +114,7 @@ impl HttpStatusCode for StatusCode {
             StatusCode::SwitchProxy => "Switch Proxy", 
             StatusCode::TemporaryRedirect(_) => "Temporary Redirect", 
             StatusCode::PermanentRedirect(_) => "Permanent Redirect",
-            StatusCode::BadRequest => "Bad Redirect", 
+            StatusCode::BadRequest => "Bad Request", 
             StatusCode::Unauthorized => "Unauthorized", 
             StatusCode::PaymentRequired => "Payment Required", 
             StatusCode::Forbidden => "Forbidden", 
