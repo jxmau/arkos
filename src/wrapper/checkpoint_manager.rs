@@ -86,7 +86,9 @@ mod test {
     // Send - Path in Checkpoint - Expected
 
     fn base(list: &str) -> CheckpointManager {
-        let checkpoint = Checkpoint::new(vec!(list.into(), "/".into()), Arc::new(|_req: Request| {Err(StatusCode::BadRequest)} ));
+        let mut checkpoint = Checkpoint::new( Arc::new(|_req: Request| {Err(StatusCode::BadRequest)} ));
+        checkpoint.on(list);
+        checkpoint.on("/");
         CheckpointManager::new(checkpoint)
     }
 

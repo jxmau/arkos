@@ -236,7 +236,8 @@ mod test {
         
         let routes : Arc<Mutex<Vec<Route>>> =Arc::new(Mutex::new(vec![route])) ;
         let cors = Arc::new(Mutex::new(CORSHandler::inert()));
-        let check = Checkpoint::new(vec!["/hello".into()], check());
+        let mut check = Checkpoint::new( check());
+        check.on("/hello");
         let checkpoints = Arc::new(Mutex::new(vec![check]));
         assert_eq!(StatusCode::Ok, handle_http1_request(&1, routes, &request, cors, checkpoints).unwrap().response.status);
      }
@@ -247,7 +248,8 @@ mod test {
         let request = "GET /hello HTTP/1.1".to_string();
         let routes : Arc<Mutex<Vec<Route>>> =Arc::new(Mutex::new(vec![route])) ;
         let cors = Arc::new(Mutex::new(CORSHandler::inert()));
-        let check = Checkpoint::new(vec!["/hello".into()], check());
+        let mut check = Checkpoint::new( check());
+        check.on("/hello");
         let checkpoints = Arc::new(Mutex::new(vec![check]));
         assert_eq!(Err(StatusCode::BadRequest), handle_http1_request(&1, routes, &request, cors, checkpoints));
      }
@@ -263,7 +265,8 @@ mod test {
         let request = "GET /hello?security=Bernard HTTP/1.1".to_string();
         let routes : Arc<Mutex<Vec<Route>>> =Arc::new(Mutex::new(vec![route])) ;
         let cors = Arc::new(Mutex::new(CORSHandler::inert()));
-        let check = Checkpoint::new(vec!["/hello".into()], check());
+        let mut check = Checkpoint::new( check());
+        check.on("/hello");
         let checkpoints = Arc::new(Mutex::new(vec![check]));
         assert_eq!(StatusCode::Ok, handle_http1_request(&1, routes, &request, cors, checkpoints).unwrap().response.status);
      }
@@ -275,7 +278,8 @@ mod test {
         let request = "GET /hello HTTP/1.1".to_string();
         let routes : Arc<Mutex<Vec<Route>>> =Arc::new(Mutex::new(vec![route])) ;
         let cors = Arc::new(Mutex::new(CORSHandler::inert()));
-        let check = Checkpoint::new(vec!["/hello".into()], check());
+        let mut check = Checkpoint::new( check());
+        check.on("/hello");
         let checkpoints = Arc::new(Mutex::new(vec![check]));
         assert_eq!(Err(StatusCode::BadRequest), handle_http1_request(&1, routes, &request, cors, checkpoints));
      }
