@@ -41,7 +41,13 @@ pub struct Server{
 }
 
 
+impl Default for Server {
 
+    /// Will create an empty server with the address 127.0.0.1:8000 .
+    fn default() -> Self {
+        Server { address: [127, 0, 0, 1] , port: 8000, routes: Vec::new(), cors_handler: CORSHandler::inert(), checkpoints: Vec::new()}
+    }
+}
 
 impl Server
 
@@ -53,9 +59,22 @@ impl Server
     }
 
     /// Will set the routes as Arkos doesn't use a Router kind of struct.
+    /// This will override every Routes previously added to the server.
     /// Note regarding CORS Request: Arkos server will reroute request to the CORSHandler only if it cannot found an OPTIONS request with the url. Add an OPTIONS only if you want to override the CORS Handler.
     pub fn set_routes(&mut self, routes: Vec<Route>) {
         self.routes = routes;
+    }
+
+    /// Will add a route to the Server.
+    pub fn add_route(&mut self, route: Route) {
+        self.routes.push(route);
+    }
+    
+    /// Will add a route to the Server.
+    pub fn add_several_routes(&mut self, routes: Vec<Route>) {
+        for r in routes {
+            self.routes.push(r);
+        }
     }
 
     /// Will replace the CORSHandler. 
