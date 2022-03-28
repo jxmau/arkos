@@ -26,6 +26,8 @@ pub struct Route{
     #[doc(hidden)]
     pub required_cookie: Vec<String>,
     #[doc(hidden)]
+    pub static_response: Option<Response>,
+    #[doc(hidden)]
     pub response: Arc<dyn Fn(Request) -> Result<Response, StatusCode> + Send + Sync>,
     #[doc(hidden)]
     pub checks: Vec<Arc<dyn Fn(Request) -> Result<(), StatusCode> + Send + Sync>>,
@@ -35,7 +37,7 @@ impl Route {
     
     /// Will create a new Route with a path and a HTTP Method, but with an empty Response that will return a 200 Ok if called.
     pub fn new(url: &str,method: HttpMethod) -> Self{
-        Route {url : url.to_string(), method, request: None,  required_param: Vec::new(), required_header: Vec::new(),required_cookie: Vec::new(),  response : Arc::new(|_req: Request| {Ok(Response::default())}), checks: Vec::new() }
+        Route {url : url.to_string(), method, request: None,  required_param: Vec::new(), required_header: Vec::new(),required_cookie: Vec::new(),static_response: None,  response : Arc::new(|_req: Request| {Ok(Response::default())}), checks: Vec::new() }
     }
 
     /// Will add a required url parameters. If missing, the server will return a 400 Bad Request Response.
@@ -53,6 +55,13 @@ impl Route {
     /// Will add a required cookie. If missing, the server will return a 400 Bad Request Response.
     pub fn add_required_cookie(&mut self,  name: &str) -> &mut Self {
         self.required_cookie.push(name.into());
+        self
+    }
+
+    /// Will add a set static Response. 
+    /// This response will override the response and Fn given by the set_response method.
+    pub fn set_static_response(&mut self, response: Response) -> &mut Self {
+        self.static_response = Some(response);
         self
     }
 
@@ -91,6 +100,15 @@ impl Route {
         }
 
         true
+    }
+
+    pub(crate) fn get_response(&self, req: Request) -> Result<Response, StatusCode> {
+
+        match &self.static_response {
+            Some(s) => Ok(s.to_owned()),
+            None => Ok((self.response)(req)?)
+        }
+
     }
 }
 

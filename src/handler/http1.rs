@@ -114,11 +114,11 @@ pub fn handle_http1_request(p_subversion: &u8, paths: Arc<Mutex<Vec<Route>>>, re
 
 
     // 7. Ask for the Response.
-    let response = match (&route_found.response)(request.to_owned()) {
-        Ok(r) => r,
+    let response = match &route_found.get_response(request.to_owned()) {
+        Ok(r) => r.to_owned(),
         Err(e) => {
             debug!("An error has been returned when calling the Response function of the Route for Request {} {} - Returning {} {} ", request.method.to_string(), request.url, e.get_code(), e.get_title());
-            return Err(e);
+            return Err(e.to_owned());
         },
     };
 
